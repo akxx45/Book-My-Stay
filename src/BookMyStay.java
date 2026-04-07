@@ -1,77 +1,127 @@
 import java.util.*;
 
-class InvalidBookingException extends Exception {
-    InvalidBookingException(String message) {
-        super(message);
+// Booking class to store booking details
+class Booking {
+    String bookingId;
+    String roomType;
+    String roomId;
+    boolean isActive;
+
+    Booking(String bookingId, String roomType, String roomId) {
+        this.bookingId = bookingId;
+        this.roomType = roomType;
+        this.roomId = roomId;
+        this.isActive = true;
     }
 }
 
-class RoomInventory {
-    private Map<String, Integer> inventory;
+// Main system class
+public class UseCase10BookingCancellation {
 
-    RoomInventory() {
-        inventory = new HashMap<>();
-        inventory.put("Single Room", 2);
-        inventory.put("Double Room", 1);
-        inventory.put("Suite Room", 0);
-    }
+    // Inventory: roomType -> available count
+    private static Map<String, Integer> inventory = new HashMap<>();
 
-    int getAvailability(String roomType) throws InvalidBookingException {
-        if (!inventory.containsKey(roomType)) {
-            throw new InvalidBookingException("Invalid room type: " + roomType);
-        }
-        return inventory.get(roomType);
-    }
+    // Available room IDs: roomType -> queue of room IDs
+    private static Map<String, Queue<String>> availableRooms = new HashMap<>();
 
-    void reduceAvailability(String roomType) throws InvalidBookingException {
-        int available = getAvailability(roomType);
-        if (available <= 0) {
-            throw new InvalidBookingException("No rooms available for " + roomType);
-        }
-        inventory.put(roomType, available - 1);
-    }
-}
+    // Booking records: bookingId -> Booking object
+    private static Map<String, Booking> bookings = new HashMap<>();
 
-class BookingService {
-    private RoomInventory inventory;
+    // Rollback stack (LIFO)
+    private static Stack<String> rollbackStack = new Stack<>();
 
-    BookingService(RoomInventory inventory) {
-        this.inventory = inventory;
-    }
-
-    void bookRoom(String guestName, String roomType) {
-        try {
-            if (guestName == null || guestName.trim().isEmpty()) {
-                throw new InvalidBookingException("Guest name cannot be empty");
-            }
-
-            int available = inventory.getAvailability(roomType);
-
-            if (available <= 0) {
-                throw new InvalidBookingException("No availability for " + roomType);
-            }
-
-            inventory.reduceAvailability(roomType);
-
-            System.out.println("Booking Confirmed for " + guestName + " | Room Type: " + roomType);
-
-        } catch (InvalidBookingException e) {
-            System.out.println("Booking Failed: " + e.getMessage());
-        }
-    }
-}
-
-public class UseCase9ErrorHandlingValidation {
     public static void main(String[] args) {
-        System.out.println("Welcome to Book My Stay App");
-        System.out.println("Hotel Booking System v9.1\n");
 
-        RoomInventory inventory = new RoomInventory();
-        BookingService service = new BookingService(inventory);
+        // Initialize inventory
+        inventory.put("Deluxe", 2);
+        inventory.put("Suite", 1);
 
-        service.bookRoom("Akshaya", "Single Room");
-        service.bookRoom("", "Double Room");
-        service.bookRoom("Ravi", "Suite Room");
-        service.bookRoom("Priya", "Luxury Room");
+        // Initialize room IDs
+        availableRooms.put("Deluxe", new LinkedList<>(Arrays.asList("D1", "D2")));
+        availableRooms.put("Suite", new LinkedList<>(Arrays.asList("S1")));
+
+        // Simulate booking
+        createBooking("B101", "Deluxe");
+        createBooking("B102", "Suite");
+
+        System.out.println("\n--- Before Cancellation ---");
+        printStatus();
+
+        // Cancel booking
+        cancelBooking("B101");
+
+        System.out.println("\n--- After Cancellation ---");
+        printStatus();
+
+        // Try invalid cancellation
+        cancelBooking("B999"); // Non-existent
+        cancelBooking("B101"); // Already cancelled
+    }
+
+    // Booking creation (for simulation)
+    public static void createBooking(String bookingId, String roomType) {
+        if (!inventory.containsKey(roomType) || inventory.get(roomType) == 0) {
+            System.out.println("No rooms available for type: " + roomType);
+            return;
+        }
+
+        String roomId = availableRooms.get(roomType).poll();
+        inventory.put(roomType, inventory.get(roomType) - 1);
+
+        Booking booking = new Booking(bookingId, roomType, roomId);
+        bookings.put(bookingId, booking);
+
+        System.out.println("Booking confirmed: " + bookingId + " | Room: " + roomId);
+    }
+
+    // Cancellation logic with rollback
+    public static void cancelBooking(String bookingId) {
+        System.out.println("\nAttempting cancellation for: " + bookingId);
+
+        // Validation
+        if (!bookings.containsKey(bookingId)) {
+            System.out.println("Cancellation failed: Booking does not exist.");
+            return;
+        }
+
+        Booking booking = bookings.get(bookingId);
+
+        if (!booking.isActive) {
+            System.out.println("Cancellation failed: Booking already cancelled.");
+            return;
+        }
+
+        // Step 1: Push to rollback stack
+        rollbackStack.push(booking.roomId);
+
+        // Step 2: Restore inventory
+        inventory.put(booking.roomType, inventory.get(booking.roomType) + 1);
+
+        // Step 3: Release room back to pool
+        availableRooms.get(booking.roomType).offer(booking.roomId);
+
+        // Step 4: Update booking status
+        booking.isActive = false;
+
+        // Step 5: Log history
+        System.out.println("Cancellation successful for booking: " + bookingId);
+        System.out.println("Room " + booking.roomId + " released back to inventory.");
+    }
+
+    // Utility method to print system status
+    public static void printStatus() {
+        System.out.println("\nInventory: " + inventory);
+
+        System.out.println("Available Rooms:");
+        for (String type : availableRooms.keySet()) {
+            System.out.println(type + " -> " + availableRooms.get(type));
+        }
+
+        System.out.println("Rollback Stack: " + rollbackStack);
+
+        System.out.println("Bookings:");
+        for (Booking b : bookings.values()) {
+            System.out.println(b.bookingId + " | " + b.roomType + " | " + b.roomId + " | Active: " + b.isActive);
+        }
     }
 }
